@@ -1,143 +1,153 @@
-require("dotenv").config();
-const express = require("express");
-const mongoose = require("mongoose");
-const jwt = require("jsonwebtoken");
-const cors = require("cors");
+import { useState, useEffect } from "react";
+import Calendar from "react-calendar";
+import "react-calendar/dist/Calendar.css";
 
-const app = express();
-app.use(express.json());
-app.use(cors());
+function App() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected ✅"))
-  .catch(err => console.log(err));
+  const [sessions, setSessions] = useState([]);
+  const [users, setUsers] = useState([]);
 
-const SECRET = process.env.JWT_SECRET;
+  const [date, setDate] = useState(new Date());
+  const [time, setTime] = useState("");
 
-// MODELS
-const User = mongoose.model("User", {
-  username: String,
-  password: String,
-  role: String
-});
+  const BASE = "https://edtech-backend-r5yc.onrender.com";
 
-const Course = mongoose.model("Course", {
-  title: String
-});
+  const getToken = () => localStorage.getItem("token");
 
-const Session = mongoose.model("Session", {
-  title: String,
-  date: String,
-  time: String,
-  meetLink: String,
-  student: String,
-  tutor: String
-});
+  // LOGIN
+  const login = async () => {
+    const res = await fetch(`${BASE}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
 
-// AUTH
-const verifyToken = (req, res, next) => {
-  const token = req.headers["authorization"];
-  if (!token) return res.status(403).send("No token");
+    const data = await res.json();
+    localStorage.setItem("token", data.token);
+    setIsLoggedIn(true);
+  };
 
-  jwt.verify(token, SECRET, (err, decoded) => {
-    if (err) return res.status(401).send("Invalid token");
-    req.user = decoded;
-    next();
-  });
-};
+  // LOAD DATA
+  const loadDashboard = async () => {
+    const res = await fetch(`${BASE}/dashboard`, {
+      headers: { Authorization: getToken() }
+    });
+    const data = await res.json();
+    setRole(data.role);
+  };
 
-// LOGIN
-app.post("/login", async (req, res) => {
-  const user = await User.findOne(req.body);
-  if (!user) return res.status(401).send("Invalid");
+  const loadSessions = async () => {
+    const res = await fetch(`${BASE}/sessions`, {
+      headers: { Authorization: getToken() }
+    });
+    setSessions(await res.json());
+  };
 
-  const token = jwt.sign({ role: user.role }, SECRET);
-  res.json({ token });
-});
+  const loadUsers = async () => {
+    const res = await fetch(`${BASE}/all-users`, {
+      headers: { Authorization: getToken() }
+    });
+    setUsers(await res.json());
+  };
 
-// ADMIN → CREATE USER
-app.post("/user", verifyToken, async (req, res) => {
-  if (req.user.role !== "admin") return res.sendStatus(403);
+  // RESCHEDULE
+  const updateSession = async (id) => {
+    await fetch(`${BASE}/session/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: getToken()
+      },
+      body: JSON.stringify({ date, time })
+    });
 
-  await User.create(req.body);
-  res.send("User created");
-});
+    alert("Updated");
+    loadSessions();
+  };
 
-// ADMIN → CREATE COURSE
-app.post("/course", verifyToken, async (req, res) => {
-  if (req.user.role !== "admin") return res.sendStatus(403);
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadDashboard();
+      loadSessions();
+      loadUsers();
+    }
+  }, [isLoggedIn]);
 
-  await Course.create(req.body);
-  res.send("Course created");
-});
+  const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
-// ✅ ADMIN STATS
-app.get("/admin/stats", verifyToken, async (req, res) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).send("Only admin");
-  }
+  return (
+    <div className="p-6">
 
-  const users = await User.find();
-  const sessions = await Session.find();
+      {!isLoggedIn ? (
+        <>
+          <h2>Login</h2>
+          <input placeholder="username" onChange={e=>setUsername(e.target.value)} />
+          <input placeholder="password" onChange={e=>setPassword(e.target.value)} />
+          <button onClick={login}>Login</button>
+        </>
+      ) : (
+        <>
+          <h2>{role}</h2>
 
-  res.json({
-    totalUsers: users.length,
-    totalSessions: sessions.length,
-    users
-  });
-});
+          {/* ADMIN */}
+          {role === "admin" && (
+            <>
+              <h3>Users</h3>
+              {users.map((u,i)=>(
+                <div key={i}>{u.username} - {u.role}</div>
+              ))}
+            </>
+          )}
 
-// GET STUDENTS
-app.get("/users", verifyToken, async (req, res) => {
-  const users = await User.find({ role: "student" });
-  res.json(users);
-});
+          {/* TUTOR WEEK VIEW */}
+          {role === "tutor" && (
+            <>
+              {days.map(day => (
+                <div key={day} className="bg-white p-4 rounded shadow mb-4">
+                  <h3 className="text-green-600 text-xl">{day}</h3>
 
-// CREATE SESSION (TUTOR)
-app.post("/session", verifyToken, async (req, res) => {
-  if (req.user.role !== "tutor") return res.sendStatus(403);
+                  {sessions
+                    .filter(s => new Date(s.date).toLocaleString("en-US",{weekday:"long"}) === day)
+                    .map(s => (
+                      <div key={s._id} className="flex gap-4 mt-2">
+                        <span>{s.time}</span>
+                        <a href={s.meetLink}>Meet</a>
+                        <span>{s.student}</span>
 
-  const { title, date, time, student } = req.body;
+                        <input type="time" onChange={e=>setTime(e.target.value)} />
+                        <button onClick={()=>updateSession(s._id)}>Reschedule</button>
+                      </div>
+                    ))}
+                </div>
+              ))}
+            </>
+          )}
 
-  const meetLink = `https://meet.google.com/${Math.random()
-    .toString(36)
-    .substring(2, 6)}-${Math.random()
-    .toString(36)
-    .substring(2, 6)}-${Math.random()
-    .toString(36)
-    .substring(2, 6)}`;
+          {/* STUDENT */}
+          {role === "student" && (
+            <>
+              <Calendar onChange={setDate} value={date} />
+              {sessions.map(s => (
+                <div key={s._id}>
+                  {s.title} - {s.time}
+                  <a href={s.meetLink}>Join</a>
+                </div>
+              ))}
+            </>
+          )}
 
-  const session = await Session.create({
-    title,
-    date,
-    time,
-    meetLink,
-    student,
-    tutor: req.user.role
-  });
+          <button onClick={()=>{
+            localStorage.removeItem("token");
+            setIsLoggedIn(false);
+          }}>Logout</button>
+        </>
+      )}
+    </div>
+  );
+}
 
-  res.json(session);
-});
-
-// UPDATE SESSION (RESCHEDULE)
-app.put("/session/:id", verifyToken, async (req, res) => {
-  if (req.user.role !== "tutor") return res.sendStatus(403);
-
-  const { date, time } = req.body;
-
-  await Session.findByIdAndUpdate(req.params.id, { date, time });
-  res.send("Updated");
-});
-
-// GET SESSIONS
-app.get("/sessions", verifyToken, async (req, res) => {
-  const sessions = await Session.find();
-  res.json(sessions);
-});
-
-// DASHBOARD
-app.get("/dashboard", verifyToken, (req, res) => {
-  res.json({ role: req.user.role });
-});
-
-app.listen(5000, () => console.log("Server running"));
+export default App;
