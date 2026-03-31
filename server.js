@@ -1,6 +1,6 @@
 require("dotenv").config();
-const mongoose = require("mongoose");
 const express = require("express");
+const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 
@@ -8,14 +8,13 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ✅ MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB connected ✅"))
-  .catch(err => console.log("MongoDB error ❌", err));
+  .catch(err => console.log(err));
 
 const SECRET = process.env.JWT_SECRET;
 
-// ✅ Models
+// MODELS
 const User = mongoose.model("User", {
   username: String,
   password: String,
@@ -23,20 +22,21 @@ const User = mongoose.model("User", {
 });
 
 const Course = mongoose.model("Course", {
-  title: String,
-  createdBy: String,
-  date: String
+  title: String
 });
 
 const Session = mongoose.model("Session", {
   title: String,
-  date: String
+  date: String,
+  time: String,
+  meetLink: String,
+  student: String,
+  tutor: String
 });
 
-// ✅ Middleware
+// AUTH
 const verifyToken = (req, res, next) => {
   const token = req.headers["authorization"];
-
   if (!token) return res.status(403).send("No token");
 
   jwt.verify(token, SECRET, (err, decoded) => {
@@ -46,84 +46,82 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-
-
-// ✅ Login
+// LOGIN
 app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+  const user = await User.findOne(req.body);
+  if (!user) return res.status(401).send("Invalid");
 
-  const user = await User.findOne({ username, password });
-
-  if (!user) return res.status(401).send("Invalid credentials");
-
-  const token = jwt.sign({ role: user.role }, SECRET, {
-    expiresIn: "1h"
-  });
-
+  const token = jwt.sign({ role: user.role }, SECRET);
   res.json({ token });
 });
 
-// ✅ Create Course
+// ADMIN → CREATE USER
+app.post("/user", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") return res.sendStatus(403);
+
+  await User.create(req.body);
+  res.send("User created");
+});
+
+// ADMIN → CREATE COURSE
 app.post("/course", verifyToken, async (req, res) => {
-  if (req.user.role !== "tutor") {
-    return res.status(403).send("Only tutors can create courses");
-  }
+  if (req.user.role !== "admin") return res.sendStatus(403);
 
-  const { title } = req.body;
+  await Course.create(req.body);
+  res.send("Course created");
+});
 
-  await Course.create({
+// GET STUDENTS
+app.get("/users", verifyToken, async (req, res) => {
+  const users = await User.find({ role: "student" });
+  res.json(users);
+});
+
+// CREATE SESSION (TUTOR)
+app.post("/session", verifyToken, async (req, res) => {
+  if (req.user.role !== "tutor") return res.sendStatus(403);
+
+  const { title, date, time, student } = req.body;
+
+  const meetLink = `https://meet.google.com/${Math.random()
+    .toString(36)
+    .substring(2, 6)}-${Math.random()
+    .toString(36)
+    .substring(2, 6)}-${Math.random()
+    .toString(36)
+    .substring(2, 6)}`;
+
+  const session = await Session.create({
     title,
-    createdBy: req.user.role,
-    date: new Date().toISOString()
+    date,
+    time,
+    meetLink,
+    student,
+    tutor: req.user.role
   });
 
-  res.json({ message: "Course created" });
+  res.json(session);
 });
 
-// ✅ Get Courses
-app.get("/courses", verifyToken, async (req, res) => {
-  const courses = await Course.find();
-  res.json(courses);
+// UPDATE SESSION (RESCHEDULE)
+app.put("/session/:id", verifyToken, async (req, res) => {
+  if (req.user.role !== "tutor") return res.sendStatus(403);
+
+  const { date, time } = req.body;
+
+  await Session.findByIdAndUpdate(req.params.id, { date, time });
+  res.send("Updated");
 });
 
-// ✅ Create Session
-app.post("/session", verifyToken, async (req, res) => {
-  if (req.user.role !== "tutor") {
-    return res.status(403).send("Only tutors can create sessions");
-  }
-
-  const { title, date } = req.body;
-
-  await Session.create({ title, date });
-
-  res.json({ message: "Session created" });
-});
-
-// ✅ Get Sessions
+// GET SESSIONS
 app.get("/sessions", verifyToken, async (req, res) => {
   const sessions = await Session.find();
   res.json(sessions);
 });
 
-// ✅ Dashboard
+// DASHBOARD
 app.get("/dashboard", verifyToken, (req, res) => {
-  res.json({ message: `Welcome ${req.user.role}` });
+  res.json({ role: req.user.role });
 });
 
-// ✅ Admin
-app.get("/admin", verifyToken, async (req, res) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).send("Access denied");
-  }
-
-  const users = await User.find();
-  const courses = await Course.find();
-  const sessions = await Session.find();
-
-  res.json({ users, courses, sessions });
-});
-
-// ✅ Start Server
-app.listen(5000, () => {
-  console.log("Server running on http://localhost:5000");
-});
+app.listen(5000, () => console.log("Server running"));
