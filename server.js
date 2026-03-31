@@ -54,7 +54,7 @@ app.get("/seed", async (req, res) => {
   await User.create({ username: "tutor", password: "123", role: "tutor" });
   await User.create({ username: "admin", password: "123", role: "admin" });
 
-  res.send("Users added ✅");
+  res.send("Users addd ✅");
 });
 
 // ✅ Login
