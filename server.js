@@ -46,6 +46,17 @@ const verifyToken = (req, res, next) => {
   });
 };
 
+// ✅ Seed Users (RUN ONCE)
+app.get("/seed", async (req, res) => {
+  await User.deleteMany();
+
+  await User.create({ username: "student", password: "123", role: "student" });
+  await User.create({ username: "tutor", password: "123", role: "tutor" });
+  await User.create({ username: "admin", password: "123", role: "admin" });
+
+  res.send("Users added ✅");
+});
+
 // ✅ Login
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
