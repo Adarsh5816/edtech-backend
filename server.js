@@ -71,6 +71,22 @@ app.post("/course", verifyToken, async (req, res) => {
   res.send("Course created");
 });
 
+// ✅ ADMIN STATS
+app.get("/admin/stats", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).send("Only admin");
+  }
+
+  const users = await User.find();
+  const sessions = await Session.find();
+
+  res.json({
+    totalUsers: users.length,
+    totalSessions: sessions.length,
+    users
+  });
+});
+
 // GET STUDENTS
 app.get("/users", verifyToken, async (req, res) => {
   const users = await User.find({ role: "student" });
